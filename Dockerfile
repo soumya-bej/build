@@ -1,50 +1,28 @@
-# ================================
-# Stage 1: Build (glibc 2.35)
-# ================================
-FROM ubuntu:22.04 AS builder
+FROM ubuntu:22.04
 
-ENV DEBIAN_FRONTEND=noninteractive
-WORKDIR /build
+WORKDIR /app
 
-# Install build dependencies
+# Install runtime dependencies
 RUN apt-get update && apt-get install -y \
-    build-essential \
-    g++ \
-    cmake \
-    git \
-    perl \
-    curl \
-    pkg-config \
-    ca-certificates \
-    golang \
-    libssl-dev \
-    libcurl4-openssl-dev \
-    zlib1g-dev \
-    libxml2-dev \
-    dos2unix \
-    bash \
+    libxml2 libssl3 zlib1g curl bash wget unzip ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy build script
-COPY build_s3_bench.sh /build/build_s3_bench.sh
+# Install MinIO server
+RUN wget https://dl.min.io/server/minio/release/linux-amd64/minio -O /usr/local/bin/minio \
+    && chmod +x /usr/local/bin/minio
 
-# Patch script:
-# 1. Remove sudo
-# 2. Comment dependency install section
-# 3. Fix Windows CRLF
-RUN sed -i \
-    -e 's/sudo //g' \
-    -e '/Installing dependencies/,+15 s/^/# /' \
-    /build/build_s3_bench.sh \
-    && dos2unix /build/build_s3_bench.sh \
-    && chmod +x /build/build_s3_bench.sh
+# Install MinIO client (mc)
+RUN wget https://dl.min.io/client/mc/release/linux-amd64/mc -O /usr/local/bin/mc \
+    && chmod +x /usr/local/bin/mc
 
-# Run build using bash (NOT sh)
-RUN bash /build/build_s3_bench.sh
+# Copy benchmark binary and seed data
+COPY s3_benchmark_static /app/s3_benchmark_static
+COPY seed /seed
+COPY run.sh /app/run.sh
+RUN chmod +x /app/run.sh
 
-# ================================
-# Stage 2: Binary-only output
-# ================================
-FROM scratch AS output
+# Expose ports
+EXPOSE 9000 9001
 
-COPY --from=builder /root/aws-s3-benchmark/s3_benchmark_static /s3_benchmark_static
+# Run MinIO, seed bucket, and benchmark
+CMD ["/app/run.sh"]
